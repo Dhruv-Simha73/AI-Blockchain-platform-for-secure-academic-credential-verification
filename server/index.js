@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
@@ -356,6 +357,12 @@ app.post(
       }
 
       // Create certificate
+      const fileHash = crypto
+  .createHash("sha256")
+  .update(fs.readFileSync(req.file.path))
+  .digest("hex");
+
+console.log("Certificate SHA-256:", fileHash);
       const certificate = await Certificate.create({
         student: studentId,
         title,
@@ -364,6 +371,7 @@ app.post(
         issueDate,
         fileName: req.file.originalname,
         filePath: req.file.path,
+        fileHash: fileHash,
         status: "pending",
       });
 
@@ -406,6 +414,59 @@ app.get(
       res.status(500).json({
         success: false,
         message: "Server error while fetching certificates",
+      });
+    }
+  }
+);
+
+
+/* UPDATE CERTIFICATE STATUS - ADMIN */
+app.patch(
+  "/certificates/:id/status",
+  authenticateToken,
+  authorizeRole("admin"),
+  async (req, res) => {
+    try {
+      const { status } = req.body;
+
+      if (!["verified", "rejected"].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Status must be verified or rejected",
+        });
+      }
+
+      const certificate = await Certificate.findByIdAndUpdate(
+        req.params.id,
+        { status },
+        { new: true, runValidators: true }
+      ).populate("student", "name usn email");
+
+      if (!certificate) {
+        return res.status(404).json({
+          success: false,
+          message: "Certificate not found",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `Certificate ${status} successfully`,
+        certificate,
+      });
+    } catch (error) {
+      console.error("Error updating certificate status:", error);
+
+      if (error.name === "CastError") {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid certificate ID",
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: "Server error while updating certificate status",
       });
     }
   }
@@ -501,6 +562,65 @@ app.get(
   }
 );
 
+// VERIFY CERTIFICATE USING SHA-256 HASH
+app.post(
+  "/certificates/verify",
+  upload.single("certificate"),
+  async (req, res) => {
+    try {
+      // Check whether a file was uploaded
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: "Certificate file is required",
+        });
+      }
+
+      // Generate SHA-256 hash of the submitted file
+      const submittedHash = crypto
+        .createHash("sha256")
+        .update(fs.readFileSync(req.file.path))
+        .digest("hex");
+
+      // Find a matching certificate that has been approved
+      const certificate = await Certificate.findOne({
+        fileHash: submittedHash,
+        status: "verified",
+      }).populate("student", "name usn");
+
+      // Delete the temporary uploaded verification file
+      fs.unlinkSync(req.file.path);
+
+      if (!certificate) {
+        return res.status(404).json({
+          success: false,
+          authentic: false,
+          message: "Certificate not found or not approved",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        authentic: true,
+        message: "Certificate verified successfully",
+        certificate: {
+          title: certificate.title,
+          issuingOrganization: certificate.issuingOrganization,
+          issueDate: certificate.issueDate,
+          student: certificate.student,
+          status: certificate.status,
+        },
+      });
+    } catch (error) {
+      console.error("Certificate verification error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Server error during certificate verification",
+      });
+    }
+  }
+);
 
 
 // VERIFY API

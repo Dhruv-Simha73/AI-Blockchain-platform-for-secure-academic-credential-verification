@@ -100,6 +100,9 @@ const fetchCertificates = async (studentId, token) => {
 
     if (parsedUser.role === "admin") {
       fetchStudents(savedToken);
+      fetchAllCertificates(savedToken);
+    } else {
+      fetchCertificates(parsedUser.id, savedToken);
     }
   }
 }, []);
@@ -187,6 +190,89 @@ const handleCertificateUpload = async () => {
     ]);
   }
 };
+
+
+const updateCertificateStatus = async (certificateId, status) => {
+  const token = localStorage.getItem("token");
+
+  try {
+    const response = await fetch(
+      `http://localhost:5000/certificates/${certificateId}/status`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      alert(data.message || "Failed to update certificate status");
+      return;
+    }
+
+    setCertificates((previous) =>
+      previous.map((certificate) =>
+        certificate._id === certificateId
+          ? { ...certificate, status: data.certificate.status }
+          : certificate
+      )
+    );
+
+    alert(`Certificate ${status} successfully!`);
+  } catch (error) {
+    console.error("Certificate status update error:", error);
+    alert("Could not connect to the server.");
+  }
+};
+
+const deleteCertificate = async (certificateId) => {
+  const confirmDelete = window.confirm(
+    "Are you sure you want to delete this certificate? This action cannot be undone."
+  );
+
+  if (!confirmDelete) {
+    return;
+  }
+
+  try {
+    const token = localStorage.getItem("token");
+
+    const response = await fetch(
+      `http://localhost:5000/certificates/${certificateId}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    const data = await response.json();
+
+    if (data.success) {
+      setCertificates((prevCertificates) =>
+        prevCertificates.filter(
+          (certificate) => certificate._id !== certificateId
+        )
+      );
+
+      alert("Certificate deleted successfully!");
+    } else {
+      alert(data.message);
+    }
+  } catch (error) {
+    console.error("Certificate deletion error:", error);
+    alert("Unable to delete certificate");
+  }
+};
+
+
+
   return (
     <div
       style={{
@@ -624,9 +710,60 @@ const handleCertificateUpload = async () => {
           {new Date(certificate.issueDate).toLocaleDateString()}
         </p>
 
-        <p>
-          <strong>Status:</strong> {certificate.status}
-        </p>
+        
+<p>
+  <strong>Status:</strong> {certificate.status}
+</p>
+
+{certificate.status === "pending" && (
+  <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+    <button
+      onClick={() =>
+        updateCertificateStatus(certificate._id, "verified")
+      }
+      style={{
+        padding: "8px 14px",
+        backgroundColor: "#2e7d32",
+        color: "white",
+        border: "none",
+        borderRadius: "4px",
+        cursor: "pointer",
+      }}
+    >
+      Approve
+    </button>
+
+    <button
+      onClick={() =>
+        updateCertificateStatus(certificate._id, "rejected")
+      }
+      style={{
+        padding: "8px 14px",
+        backgroundColor: "#c62828",
+        color: "white",
+        border: "none",
+        borderRadius: "4px",
+        cursor: "pointer",
+      }}
+    >
+      Reject
+    </button>
+  </div>
+)}
+
+<button
+  onClick={() => deleteCertificate(certificate._id)}
+  style={{
+    padding: "8px 14px",
+    backgroundColor: "#424242",
+    color: "white",
+    border: "none",
+    borderRadius: "4px",
+    cursor: "pointer",
+  }}
+>
+  Delete
+</button> 
 
         <a
           href={`http://localhost:5000/${certificate.filePath.replace(/\\/g, "/")}`}
